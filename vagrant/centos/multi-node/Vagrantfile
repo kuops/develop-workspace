@@ -1,0 +1,49 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# vagrant variable
+VAGRANTFILE_API_VERSION = "2"
+VAGRANT_EXPERIMENTAL = "disks"
+BOX_NAME = "centos/7"
+BOX_URL = "https://mirrors.ustc.edu.cn/centos-cloud/centos/7/vagrant/x86_64/images/CentOS-7.box"
+HOSTNAME_PREFIX = "centos-node-"
+# node variable
+NODES = 3
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  if Vagrant.has_plugin?("vagrant-vbguest")
+    config.vbguest.auto_update = false
+  end
+
+  config.vm.provision "file", source: "~/.ssh/id_rsa.pub", destination: "/home/vagrant/.ssh/vagrant.pub"
+  config.vm.provision "shell", inline: <<-SHELL
+    # fix LC_ALL error
+    if ! grep LC_ALL=en_US.utf-8 /etc/environment &> /dev/null;then
+      echo -e "LANG=en_US.utf-8\nLC_ALL=en_US.utf-8" >> /etc/environment
+    fi
+    # permit local ssh login
+    if ! [ -f /root/.ssh/authorized_keys ];then
+      mkdir -p /root/.ssh
+      cat /home/vagrant/.ssh/vagrant.pub >> /root/.ssh/authorized_keys
+    fi
+    sed -i 's/.*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    systemctl restart sshd.service
+  SHELL
+
+  (1..NODES).each do |i|
+    config.vm.box = BOX_NAME
+    config.vm.box_url = BOX_URL
+    config.vm.define "#{HOSTNAME_PREFIX}#{i}" do |node|
+      node.vm.hostname = "#{HOSTNAME_PREFIX}#{i}"
+      node.vm.disk :disk, size: "50GB", primary: true
+      node.vm.disk :disk, size: "200GB", name: "extra_storage"
+      node.vm.network "private_network", ip: "192.168.10.10#{i}"
+      node.vm.synced_folder ".", "/vagrant", disabled: true
+      node.vm.provider :virtualbox do |vb|
+        vb.memory = 2048
+        vb.cpus = 2
+      end
+    end
+  end
+end
